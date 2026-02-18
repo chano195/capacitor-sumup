@@ -1,0 +1,56 @@
+{
+  "name": "@chano195/capacitor-sumup",
+  "version": "1.0.0",
+  "description": "Plugin de Capacitor para el SumUp Android Reader SDK v5. Proporciona login, cobros, gestión de lector de tarjetas y manejo de sesión via API JS/TS.",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "unpkg": "dist/plugin.js",
+  "files": [
+    "android/src/main/",
+    "android/build.gradle",
+    "dist/",
+    "src/"
+  ],
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "author": "chano195 <ti@devlas.cl> (https://devlas.cl)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chano195/capacitor-sumup.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chano195/capacitor-sumup/issues"
+  },
+  "homepage": "https://github.com/chano195/capacitor-sumup#readme",
+  "keywords": [
+    "capacitor",
+    "capacitor-plugin",
+    "sumup",
+    "android",
+    "payment",
+    "card-reader",
+    "sdk",
+    "pos",
+    "point-of-sale",
+    "punto-de-venta",
+    "maquinita",
+    "terminal"
+  ],
+  "peerDependencies": {
+    "@capacitor/core": ">=5.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^8.0.0",
+    "typescript": "~5.7.0"
+  },
+  "license": "MIT"
+}
