@@ -4,14 +4,17 @@ ext {
     kotlinVersion = '1.9.22'
 }
 
-// ── Leer credenciales desde pos/.env ───────────────────────
+// ── Leer credenciales desde local.properties (preferido) o pos/.env (legacy) ──
+def localProps = new Properties()
+def localPropsFile = rootProject.file("local.properties")
+if (localPropsFile.exists()) { localPropsFile.withInputStream { localProps.load(it) } }
+
 def envFile = file("${rootProject.projectDir}/../.env")
 def envProps = new Properties()
-if (envFile.exists()) {
-    envFile.withInputStream { envProps.load(it) }
-}
-def sumupMvnUser = envProps.getProperty('sumupMavenUser') ?: System.getenv('SUMUP_MAVEN_USER') ?: ''
-def sumupMvnPass = envProps.getProperty('sumupMavenPassword') ?: System.getenv('SUMUP_MAVEN_PASSWORD') ?: ''
+if (envFile.exists()) { envFile.withInputStream { envProps.load(it) } }
+
+def sumupMvnUser = localProps.getProperty('sumupMavenUser') ?: envProps.getProperty('sumupMavenUser') ?: System.getenv('SUMUP_MAVEN_USER') ?: ''
+def sumupMvnPass = localProps.getProperty('sumupMavenPassword') ?: envProps.getProperty('sumupMavenPassword') ?: System.getenv('SUMUP_MAVEN_PASSWORD') ?: ''
 def hasTapToPayCredentials = sumupMvnUser && sumupMvnPass && sumupMvnUser != 'TU_USUARIO' && sumupMvnPass != 'TU_PASSWORD'
 
 if (!hasTapToPayCredentials) {
@@ -63,7 +66,7 @@ repositories {
     mavenCentral()
     maven { url 'https://maven.sumup.com/releases' }
     // ── Repositorio privado para Tap to Pay SDK ──
-    // Credenciales leídas desde pos/.env (sumupMavenUser / sumupMavenPassword)
+    // Credenciales leídas desde android/local.properties (sumupMavenUser / sumupMavenPassword)
     if (hasTapToPayCredentials) {
         maven {
             url 'https://maven.sumup.com/private-releases'

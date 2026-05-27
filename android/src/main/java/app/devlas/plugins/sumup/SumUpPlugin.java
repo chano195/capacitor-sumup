@@ -1,7 +1,9 @@
 package app.devlas.plugins.sumup;
 
+import android.content.pm.ApplicationInfo;
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -16,6 +18,7 @@ import com.sumup.merchant.reader.api.SumUpState;
 import com.sumup.merchant.reader.models.TransactionInfo;
 
 import java.math.BigDecimal;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,6 +31,8 @@ import java.util.UUID;
  */
 @CapacitorPlugin(name = "SumUp")
 public class SumUpPlugin extends Plugin {
+
+    private static final String TAG = "SumUpPlugin";
 
     /* ── Request codes ──────────────────────────────────── */
     private static final int RC_LOGIN    = 10_001;
@@ -53,6 +58,12 @@ public class SumUpPlugin extends Plugin {
         }
     }
 
+    /** Tap to Pay no funciona en builds debuggable (android:debug). */
+    private boolean isDebuggableBuild() {
+        if (getContext() == null) return false;
+        return (getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+    }
+
     /* ── Helpers ────────────────────────────────────────── */
 
     private JSObject ok(String message) {
@@ -60,6 +71,19 @@ public class SumUpPlugin extends Plugin {
         r.put("code", 1);
         r.put("message", message);
         return r;
+    }
+
+    /**
+     * Tap to Pay usa unidad menor para el monto.
+     * CLP/COP/HUF se muestran sin decimales, pero igual requieren exponente 2.
+     */
+    private long normalizeAmountToMinorUnit(long majorAmount, String currencyCode) {
+        if (currencyCode == null) return majorAmount;
+        String c = currencyCode.toUpperCase(Locale.ROOT);
+        if ("CLP".equals(c) || "COP".equals(c) || "HUF".equals(c)) {
+            return majorAmount * 100L;
+        }
+        return majorAmount;
     }
 
     private void runOnMainThread(Runnable action) {
@@ -295,6 +319,13 @@ public class SumUpPlugin extends Plugin {
 
                         @Override
                         public void onPaymentError(String errorMessage, String errorCode) {
+                            Log.e(TAG, "TapToPay onPaymentError code=" + errorCode + " msg=" + errorMessage);
+                            JSObject eventData = new JSObject();
+                            eventData.put("event", "paymentError");
+                            eventData.put("message", errorMessage != null ? errorMessage : "");
+                            eventData.put("code", errorCode != null ? errorCode : "TAP_PAY_ERROR");
+                            notifyListeners("tapToPayEvent", eventData);
+
                             PluginCall tapCall = (tapPaymentCallbackId != null) ? bridge.getSavedCall(tapPaymentCallbackId) : null;
                             tapPaymentCallbackId = null;
                             if (tapCall == null) return;
@@ -348,12 +379,20 @@ public class SumUpPlugin extends Plugin {
 
         bridge.saveCall(call);
         tapPaymentCallbackId = call.getCallbackId();
+        Log.i(TAG, "tapToPayCheckout start amount=" + amountDouble + " currency=" + currency + " processCardAs=" + processCard + " installments=" + installments);
 
-        long amountLong = amountDouble.longValue();
+        long amountMajor = amountDouble.longValue();
+        long amountMinor = normalizeAmountToMinorUnit(amountMajor, currency);
 
         runOnMainThread(() -> {
+            Log.i(
+                TAG,
+                "tapToPayCheckout normalized amount major=" + amountMajor +
+                " minor=" + amountMinor +
+                " currency=" + (currency != null ? currency : "CLP")
+            );
             tapToPayManager.startPayment(
-                amountLong,
+                amountMinor,
                 currency != null ? currency : "CLP",
                 processCard != null ? processCard : "DEBIT",
                 installments != null ? installments : 0,

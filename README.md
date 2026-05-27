@@ -1,28 +1,11 @@
-# capacitor-sumup
+# @devlas/capacitor-sumup-android
 
-Plugin de Capacitor para pagos con SumUp en Android.
+Plugin de Capacitor para pagos con SumUp en Android. Soporta dos familias de integración:
 
-Soporta 2 familias de integración:
+- **Reader SDK** — lectores de tarjetas Bluetooth (SumUp Air, PIN+)
+- **Tap to Pay** — NFC directo en el dispositivo Android (condicional, requiere credenciales Maven privadas)
 
-- **Reader SDK (Air / lector Bluetooth)**
-- **Tap to Pay (NFC en el teléfono Android, condicional)**
-
-Incluye fallback web seguro para desarrollo de UI en navegador.
-
-## Características
-
-- **`setup()`** — Inicializa el SDK de SumUp (`SumUpState.init`)
-- **`login()`** — Abre la pantalla nativa de login de SumUp
-- **`logout()`** — Cierra la sesión del comerciante
-- **`isLoggedIn()`** — Verifica si hay una sesión activa
-- **`openCardReaderPage()`** — Abre la configuración Bluetooth del lector de tarjetas
-- **`prepareForCheckout()`** — Pre-conecta el lector para agilizar el cobro
-- **`checkout()`** — Inicia un flujo de pago en el lector de tarjetas
-- **`closeConnection()`** — Desconecta el lector de tarjetas
-- **`initTapToPay()`** — Inicializa Tap to Pay con `affiliateKey` + `apiToken`
-- **`tapToPayCheckout()`** — Inicia cobro Tap to Pay (débito/crédito/cuotas)
-- **`isTapToPayReady()`** — Indica si Tap to Pay está inicializado
-- **`teardownTapToPay()`** — Libera recursos de Tap to Pay
+Incluye fallback web seguro para desarrollar la UI en el navegador sin errores.
 
 ## Requisitos
 
@@ -31,41 +14,48 @@ Incluye fallback web seguro para desarrollo de UI en navegador.
 | `@capacitor/core` | `>= 5.0.0` |
 | SumUp Merchant SDK | `5.0.3` |
 | Android `minSdk` | `30` |
+| Android `compileSdk` / `targetSdk` | `36` |
 | Java | `17` |
 | Kotlin | `1.9.22` |
 
 ### Requisitos Tap to Pay (opcional)
 
-Tap to Pay usa dependencia privada:
+Tap to Pay depende del SDK privado `com.sumup.tap-to-pay:utopia-sdk:1.0.4`. Para incluirlo en el build es necesario proveer credenciales Maven de SumUp. El plugin las busca en este orden de prioridad:
 
-- `com.sumup.tap-to-pay:utopia-sdk:1.0.4`
-- Repositorio privado de SumUp con credenciales Maven
+1. **`android/local.properties`** (recomendado)
+   ```properties
+   sumupMavenUser=TU_USUARIO
+   sumupMavenPassword=TU_PASSWORD
+   ```
+2. **`.env`** en la raíz del proyecto host (legacy)
+   ```env
+   sumupMavenUser=TU_USUARIO
+   sumupMavenPassword=TU_PASSWORD
+   ```
+3. **Variables de entorno del sistema**
+   ```
+   SUMUP_MAVEN_USER=TU_USUARIO
+   SUMUP_MAVEN_PASSWORD=TU_PASSWORD
+   ```
 
-Credenciales esperadas en `.env` del proyecto host:
-
-```env
-sumupMavenUser=TU_USUARIO
-sumupMavenPassword=TU_PASSWORD
-```
-
-Si no hay credenciales válidas, el plugin **compila igual** y Tap to Pay queda no disponible en runtime (`TAP_NOT_AVAILABLE`).
+Si no hay credenciales válidas, el plugin **compila igual** pero Tap to Pay queda no disponible en runtime (los métodos retornan `code: TAP_NOT_AVAILABLE`). Los fuentes de Tap to Pay se compilan desde `android/src/main/taptopay/` solo cuando las credenciales están presentes.
 
 ## Instalación
 
 ```bash
-npm install @chano195/capacitor-sumup
+npm install @devlas/capacitor-sumup-android
 npx cap sync android
 ```
 
-## Uso
+## Uso rápido
 
 ```typescript
-import { SumUp } from '@chano195/capacitor-sumup'
+import { SumUp } from '@devlas/capacitor-sumup-android'
 
 // 1. Inicializar una vez al arrancar la app
 await SumUp.setup()
 
-// 2. Iniciar sesión
+// 2. Iniciar sesión (con token OAuth o pantalla nativa)
 await SumUp.login({
   affiliateKey: 'TU_AFFILIATE_KEY',
   accessToken: 'token-oauth-opcional',
@@ -74,63 +64,126 @@ await SumUp.login({
 // 3. Verificar sesión
 const { isLoggedIn } = await SumUp.isLoggedIn()
 
-// 4. Realizar un cobro
+// 4. Cobro con lector de tarjetas
 const resultado = await SumUp.checkout({
-  amount: 15.0,
+  amount: 15000,
   currencyCode: 'CLP',
   title: 'Pedido #42',
   skipSuccessScreen: true,
 })
 
 console.log(resultado.transaction_code, resultado.status)
+
+// 5. Cobro Tap to Pay (NFC)
+await SumUp.initTapToPay({ affiliateKey: 'TU_KEY', apiToken: 'TOKEN_BACKEND' })
+
+SumUp.addListener('tapToPayEvent', (event) => {
+  console.log(event.event, event.message) // cardRequested, cardPresented, etc.
+})
+
+const pago = await SumUp.tapToPayCheckout({
+  amount: 15000,
+  currency: 'CLP',
+  processCardAs: 'DEBIT',
+})
 ```
 
 ## Referencia de API
 
-### `setup(): Promise<SumUpResponse>`
+### Reader SDK (lector Bluetooth)
 
-Inicializa el SDK de SumUp. Debe llamarse una vez antes de cualquier otro método.
+#### `setup(): Promise<SumUpResponse>`
 
-### `login(options: SumUpLoginOptions): Promise<SumUpResponse>`
+Inicializa el SDK (`SumUpState.init`). Debe llamarse una vez antes de cualquier otro método.
+
+#### `login(options): Promise<SumUpResponse>`
 
 | Parámetro | Tipo | Requerido | Descripción |
 |---|---|---|---|
-| `affiliateKey` | `string` | ✅ | Tu clave de afiliado de SumUp |
-| `accessToken` | `string` | ❌ | Token OAuth2. Si se omite, se muestra la pantalla nativa de login |
+| `affiliateKey` | `string` | ✅ | Clave de afiliado SumUp |
+| `accessToken` | `string` | ❌ | Token OAuth2. Si se omite, se abre la pantalla nativa de login |
 
-### `logout(): Promise<SumUpResponse>`
+#### `logout(): Promise<SumUpResponse>`
 
-Cierra la sesión actual del comerciante.
+Cierra la sesión del comerciante.
 
-### `isLoggedIn(): Promise<SumUpLoginStatus>`
+#### `isLoggedIn(): Promise<SumUpLoginStatus>`
 
-Retorna `{ code, isLoggedIn }`.
+Retorna `{ code: number, isLoggedIn: boolean }`.
 
-### `openCardReaderPage(): Promise<SumUpResponse>`
+#### `openCardReaderPage(): Promise<SumUpResponse>`
 
-Abre la página nativa de configuración Bluetooth del lector de tarjetas.
+Abre la página nativa de configuración Bluetooth del lector.
 
-### `prepareForCheckout(): Promise<SumUpResponse>`
+#### `prepareForCheckout(): Promise<SumUpResponse>`
 
-Pre-conecta el lector BLE para agilizar el próximo pago.
+Pre-conecta el lector BLE para acelerar el siguiente cobro.
 
-### `checkout(options: SumUpPaymentOptions): Promise<SumUpPaymentResult>`
+#### `checkout(options): Promise<SumUpPaymentResult>`
 
 | Parámetro | Tipo | Requerido | Descripción |
 |---|---|---|---|
 | `amount` | `number` | ✅ | Monto total (mínimo 1.00) |
 | `title` | `string` | ❌ | Descripción de la transacción |
-| `currencyCode` | `string` | ❌ | Código de moneda ISO (ej: `CLP`, `EUR`) |
+| `currencyCode` | `string` | ❌ | ISO 4217 (ej: `CLP`, `EUR`) |
 | `tipOnCardReader` | `boolean` | ❌ | Solicitar propina en el hardware del lector |
 | `tip` | `number` | ❌ | Monto fijo de propina |
 | `skipSuccessScreen` | `boolean` | ❌ | Omitir pantalla de éxito del SDK |
 | `skipFailedScreen` | `boolean` | ❌ | Omitir pantalla de error del SDK |
-| `foreignTransactionId` | `string` | ❌ | ID de transacción externo (máx 128 caracteres, debe ser único) |
+| `foreignTransactionId` | `string` | ❌ | ID externo único (máx 128 caracteres) |
 
-**Retorna** `SumUpPaymentResult`:
+#### `closeConnection(): Promise<SumUpResponse>`
+
+Desconecta el lector de tarjetas.
+
+### Tap to Pay (NFC en dispositivo Android)
+
+#### `initTapToPay(options): Promise<SumUpResponse>`
+
+| Parámetro | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `affiliateKey` | `string` | ✅ | Clave de afiliado SumUp |
+| `apiToken` | `string` | ✅ | Bearer token obtenido desde el backend |
+
+#### `tapToPayCheckout(options): Promise<SumUpPaymentResult>`
+
+| Parámetro | Tipo | Requerido | Descripción |
+|---|---|---|---|
+| `amount` | `number` | ✅ | Monto a cobrar |
+| `currency` | `string` | ✅ | ISO 4217 (ej: `CLP`) |
+| `processCardAs` | `'CREDIT' \| 'DEBIT'` | ✅ | Tipo de proceso (requerido en Chile) |
+| `installments` | `number` | ❌ | Número de cuotas (solo crédito; 0 = sin cuotas) |
+| `description` | `string` | ❌ | Descripción del cobro |
+| `foreignTransactionId` | `string` | ❌ | ID externo único |
+
+#### `isTapToPayReady(): Promise<{ ready: boolean }>`
+
+Retorna si el SDK Tap to Pay está inicializado y listo para cobrar.
+
+#### `teardownTapToPay(): Promise<SumUpResponse>`
+
+Libera recursos del SDK Tap to Pay.
+
+#### `addListener('tapToPayEvent', fn): Promise<PluginListenerHandle>`
+
+Escucha eventos intermedios del flujo de cobro NFC.
 
 ```typescript
-{
+SumUp.addListener('tapToPayEvent', (event) => {
+  // event.event: 'sdkReady' | 'cardRequested' | 'cardPresented' | 'pinRequired' | 'paymentStarting'
+  // event.message: descripción opcional
+})
+```
+
+### Tipos de retorno comunes
+
+```typescript
+interface SumUpResponse {
+  code: number
+  message: string
+}
+
+interface SumUpPaymentResult {
   transaction_code: string
   merchant_code: string
   amount: number
@@ -138,81 +191,53 @@ Pre-conecta el lector BLE para agilizar el próximo pago.
   vat_amount: number
   currency: string
   status: 'PENDING' | 'SUCCESSFUL' | 'CANCELLED' | 'FAILED'
-  payment_type: string
-  entry_mode: string // CHIP, CONTACTLESS, etc.
+  payment_type: string  // CASH | POS | ECOM | UNKNOWN | RECURRING | TAP_TO_PAY | ...
+  entry_mode: string    // CHIP | CONTACTLESS | NFC | ...
   installments: number
-  card_type: string  // MASTERCARD, VISA, etc.
+  card_type: string     // MASTERCARD | VISA | ...
   last_4_digits: string
   receipt_sent: boolean
 }
 ```
 
-### `closeConnection(): Promise<SumUpResponse>`
-
-Desconecta el lector de tarjetas.
-
-### `initTapToPay(options: TapToPayInitOptions): Promise<SumUpResponse>`
-
-| Parámetro | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `affiliateKey` | `string` | ✅ | Clave de afiliado SumUp |
-| `apiToken` | `string` | ✅ | Bearer token obtenido por backend |
-
-### `tapToPayCheckout(options: TapToPayCheckoutOptions): Promise<TapToPayResult>`
-
-| Parámetro | Tipo | Requerido | Descripción |
-|---|---|---|---|
-| `amount` | `number` | ✅ | Monto (mínimo 1.00) |
-| `currency` | `string` | ❌ | ISO 4217 (`CLP` por defecto) |
-| `processCardAs` | `'CREDIT' \| 'DEBIT'` | ❌ | Tipo de proceso (Chile) |
-| `installments` | `number` | ❌ | Cuotas para crédito |
-| `description` | `string` | ❌ | Descripción del cobro |
-| `foreignTransactionId` | `string` | ❌ | ID externo único |
-
-### `isTapToPayReady(): Promise<{ ready: boolean }>`
-
-Retorna si Tap to Pay está inicializado y listo para cobrar.
-
-### `teardownTapToPay(): Promise<SumUpResponse>`
-
-Libera recursos del SDK Tap to Pay.
-
 ## Fallback Web
 
-En plataformas que no sean Android, todos los métodos retornan una respuesta segura `{ code: -1, message: 'SumUp no disponible en web' }` o lanzan excepción para `checkout()`. Esto te permite desarrollar tu UI en el navegador sin errores.
+En plataformas no-Android, todos los métodos retornan `{ code: -1, message: 'SumUp no disponible en web' }` de forma silenciosa. Los métodos `checkout()` y `tapToPayCheckout()` lanzan una excepción. Esto permite desarrollar la UI en el navegador sin errores en runtime.
 
-## Notas Importantes
+## Notas de implementación
 
-- **Hilo principal**: Todas las llamadas al SDK se despachan automáticamente al hilo UI de Android.
-- **Basado en Activities**: `login()`, `checkout()` y `openCardReaderPage()` lanzan Activities nativas. La Promise se resuelve cuando la Activity termina.
-- **Permisos Bluetooth**: El plugin declara los permisos `BLUETOOTH`, `BLUETOOTH_ADMIN`, `BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN`, `ACCESS_FINE_LOCATION` y `ACCESS_COARSE_LOCATION` en su `AndroidManifest.xml`.
-- **Tap to Pay condicional**: la implementación real se compila desde `android/src/main/taptopay/` solo cuando hay credenciales Maven válidas.
+- **Hilo principal**: todas las llamadas al SDK se despachan automáticamente al hilo UI de Android.
+- **Activities nativas**: `login()`, `checkout()` y `openCardReaderPage()` lanzan Activities. La Promise se resuelve cuando la Activity termina.
+- **Permisos Bluetooth**: el plugin declara `BLUETOOTH`, `BLUETOOTH_ADMIN`, `BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN`, `ACCESS_FINE_LOCATION` y `ACCESS_COARSE_LOCATION` en su `AndroidManifest.xml`.
 
-## Publicación y consumo desde Git
+## Publicar / actualizar
 
-- `dist/` se mantiene versionado para evitar errores de consumo.
-- El paquete ejecuta build en `prepare` y `prepack`.
-- Antes de publicar, valida con:
+El paquete ejecuta `npm run build` automáticamente en `prepack` y `prepublishOnly`.
 
 ```bash
+# Validar antes de publicar
 npm run build
 npm pack --dry-run
+
+# Publicar
+npm publish --access public
 ```
+
+El directorio `dist/` se mantiene versionado en el repositorio para permitir consumo directo desde Git sin paso de build adicional.
 
 ## Atribución
 
-Este proyecto es **software libre** bajo licencia MIT. Puedes usarlo, modificarlo y distribuirlo
-libremente, incluso en proyectos comerciales. Solo te pedimos una cosa:
+Este proyecto es **software libre** bajo licencia MIT. Puedes usarlo, modificarlo y distribuirlo libremente, incluso en proyectos comerciales. Solo te pedimos una cosa:
 
 > **Si usas este plugin en tu proyecto, da crédito al autor original.**
 
 Formas válidas de dar crédito:
 
-- Mención en el README de tu proyecto: _"Usa [capacitor-sumup](https://github.com/chano195/capacitor-sumup-android-sdk) por DEVLAS SPA"_
+- Mención en el README de tu proyecto: _"Usa [capacitor-sumup-android](https://github.com/devlas-cl/capacitor-sumup-android-sdk) por DEVLAS SPA"_
 - Mención en la sección "Acerca de" o "Créditos" de tu aplicación
 - Mantener la nota de copyright en el archivo LICENSE (esto es **obligatorio** por la licencia MIT)
 
-No es obligatorio pedir permiso para usarlo, pero un ⭐ en GitHub y una mención siempre se agradecen.
+No es obligatorio pedir permiso para usarlo, pero un ⭐ en GitHub siempre se agradece.
 
 ## Licencia
 
